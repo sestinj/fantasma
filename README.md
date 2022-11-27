@@ -1,18 +1,12 @@
-A stupid simple message queueing system. Basically just a place where you can funnel a bunch of events and then it will send an HTTP POST to all of the subscribers.
-There are subscriber and publisher nodes.
+A stupid simple pub/sub node. Basically just a place where you can funnel a bunch of events and then it will send an HTTP POST to all of the subscribers.
 
-To start a node, either publisher, subscriber, or both, run
+To start a node run
 
 ```bash
-go run main <PATH_TO_CONFIG>
+go run main example/config.json
 ```
 
-You can also edit the configs while the node is running, just edit the file and it will automatically detect changes.
+Your `config.json` should contain
 
-The `config.json`.sub file is simply a mapping between topics and processes to run. When the subscriber recieves a new message, it will look for the process to run for that topic, and pass the messages contents to an instance of the process. The message is always in JSON format and is passed to the process via a file. This means you can read the message from any programming language.
-
-The `config.json`.pub file simply contains a mapping from topics to subscribers.
-
-If a subscriber process wants to publish to a topic, it can simply make an HTTP call to the publishing node it wishes to use—this should likely be the same subscriber that called it.
-
-In order to set up trust between publisher and subscriber, the subscriber must have a key that allows it access to the publisher's streams. Similarly, a key must be presented in order to post an event to a publisher node.
+1. A mapping between topics and processes to run. When the subscriber recieves a new message on a topic, it runs the corresponding process with the payload passed as a json file in the first command line argument.
+2. A mapping from topics to subscribers. Each is notified when the node recieves a new event. Note that chains can be created if a subscriber publishes an event.
