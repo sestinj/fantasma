@@ -1,0 +1,15 @@
+{
+    "Sub": {
+        "hello": "python3 hello.py",
+        "goodbye": "cat hello.py"
+    },
+    "Pub": {
+        "hello": [
+            "http://127.0.0.1:2023"
+        ]
+    },
+    "KnownHosts": [
+        ""
+    ],
+    "MyAddr": ""
+}

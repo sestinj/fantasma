@@ -16,6 +16,8 @@ import (
 type FantasmaConfig struct {
 	Pub map[string][]string
 	Sub map[string]string
+	KnownHosts []string
+	MyAddr string
 }
 
 var config FantasmaConfig
@@ -151,16 +153,53 @@ func pubHandler(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// Handle request to subscribe to a topic by adding to list of subscribers
+func subscribeHandler(w http.ResponseWriter, req *http.Request) {
+	fmt.Println("Subscription Recieved Request")
+
+	topic := req.URL.Query().Get("topic")
+	addr := req.URL.Query().Get("addr")
+
+	_, prs := config.Pub[topic]
+	if prs {
+		config.Pub[topic] = append(config.Pub[topic], addr)
+		fmt.Fprintf(w, "Subscribed to topic %s", topic)
+	} else {
+		w.WriteHeader(404)
+		fmt.Fprintf(w, "Topic %s not found", topic)
+	}
+}
+
+// Make a request to all known hosts to subscribe to a topic. Only one should be successful
+func subscribeToTopic(topic string) {
+	for _, addr := range config.KnownHosts {
+		res, err := http.Get(addr + "/subscribe?topic="+topic+"&addr="+config.MyAddr)
+		if err != nil {
+			fmt.Println("Failed to subscribe to topic: ", err.Error())
+			continue
+		} else {
+			fmt.Println("Subscribed to topic " + topic + " with response: " + res.Status)
+		}
+	}
+}
+
 func main() {
 	config = readConfig(os.Args[1])
-
+	
 	port := "2022"
 	if len(os.Args) > 2 {
 		port = os.Args[2]
 	}
 
+	// Subscribe to all topics in config
+	for topic := range config.Pub {
+		subscribeToTopic(topic)
+	}
+
+
 	http.HandleFunc("/sub", subHandler)
 	http.HandleFunc("/pub", pubHandler)
+	http.HandleFunc("/subscribe", subscribeHandler)
 
 	fmt.Println("Listening on port "+port+"...")
 	http.ListenAndServe(":"+port, nil)
