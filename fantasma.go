@@ -13,18 +13,14 @@ import (
 	"github.com/google/uuid"
 )
 
-type SubConfig map[string]string
-type PubConfig map[string][]string
 type FantasmaConfig struct {
-	Pub PubConfig
-	Sub SubConfig
+	Pub map[string][]string
+	Sub map[string]string
 }
 
-var (
-	subConfig SubConfig
-	pubConfig PubConfig
-)
+var config FantasmaConfig
 
+// Read configuration file into FantasmaConfig struct
 func readConfig(path string) FantasmaConfig {
 	file, err := os.Open(path)
 	if err != nil {
@@ -50,14 +46,13 @@ func subHandler(w http.ResponseWriter, req *http.Request) {
 	err := json.NewDecoder(req.Body).Decode(&body)
 	if err != nil {
 		fmt.Println("Failed to decode body: ", err.Error())
-		fmt.Fprintf(w, "n")
+		w.WriteHeader(500)
 		return
 	}
 	bodyBytes, _ := json.Marshal(body)
 
-	cmd, prs := subConfig[topic]
+	cmd, prs := config.Sub[topic]
 	if !prs {
-		fmt.Fprintf(w, "y")
 		return
 	}
 
@@ -66,23 +61,22 @@ func subHandler(w http.ResponseWriter, req *http.Request) {
 	err = os.WriteFile(filePath, bodyBytes, 0777)
 	if err != nil {
 		fmt.Println("Failed to write to file: ", err.Error())
-		fmt.Fprintf(w, "n")
+		w.WriteHeader(500)
 		return
 	}
 
+	// Run subprocess specified in config, passing payload file as first argument
 	cmdSegs := strings.Split(cmd, " ")
 	cmdSegs = append(cmdSegs, filePath)
 	Cmd := exec.Command(cmdSegs[0], cmdSegs[1:]...)
-	// err = Cmd.Start()
 	if err != nil {
-		// Failure to start process, respond 'n'
-		// We only check failure to start, not to finish
 		fmt.Println("Failed to start process '" + cmd + "': ", err.Error())
-		fmt.Fprintf(w, "n")
+		w.WriteHeader(500)
 		os.Remove(filePath)
 		return
 	}
 
+	// When process finishes, remove payload file and print output
 	go func() {
 		out, err := Cmd.Output()
 		if err != nil {
@@ -94,64 +88,60 @@ func subHandler(w http.ResponseWriter, req *http.Request) {
 			fmt.Println("Failed to delete file: ", err.Error())
 		}
 	}()
-
-	// If success, respond with 'y'
-	fmt.Fprintf(w, "y")
 }
 
 func pubHandler(w http.ResponseWriter, req *http.Request) {
 	fmt.Println("Publisher Recieved Request")
 
+	// Get query string and decode request body
+	topic := req.URL.Query().Get("topic")
+	
 	var body map[string]interface{}
 	err := json.NewDecoder(req.Body).Decode(&body)
 	if err != nil {
 		fmt.Println("Failed to decode body: ", err.Error())
-		fmt.Fprintf(w, "n")
+		w.WriteHeader(500)
 		return
 	}
 	
-	topic := req.URL.Query().Get("topic")
-
-	addrs, prs := pubConfig[topic]
+	// Get addresses for subscribers to the topic
+	addrs, prs := config.Pub[topic]
 	if !prs {
-		fmt.Fprintf(w, "y")
 		return
 	}
 
+	// Marshal request body into byte[] for outgoing body
 	jsonPayload, err := json.Marshal(body)
 	if err != nil {
-		fmt.Fprintf(w, "n")
+		w.WriteHeader(500)
 		return
 	}
 
 	// Send to all subscribers
-	for _, addr := range addrs {
-		res, err := http.Post(addr + "/sub?topic="+topic, "application/json", bytes.NewBuffer(jsonPayload))
-		if err != nil {
-			fmt.Println("Failed to send to subscriber: ", err.Error())
-			continue
-		} else {
-			fmt.Println("Sent to subscriber " + addr + " with response: " + res.Status)
+	go func() {
+		for _, addr := range addrs {
+			res, err := http.Post(addr + "/sub?topic="+topic, "application/json", bytes.NewBuffer(jsonPayload))
+			if err != nil {
+				fmt.Println("Failed to send to subscriber: ", err.Error())
+				continue
+			} else {
+				fmt.Println("Sent to subscriber " + addr + " with response: " + res.Status)
+			}
 		}
-	}
-
-	fmt.Fprintf(w, "y")
+	}()
 }
 
 func main() {
-	config := readConfig(os.Args[1])
+	config = readConfig(os.Args[1])
+
 	port := "2022"
 	if len(os.Args) > 2 {
 		port = os.Args[2]
 	}
 
-	subConfig = config.Sub
-	pubConfig = config.Pub
-
 	http.HandleFunc("/sub", subHandler)
 	http.HandleFunc("/pub", pubHandler)
 
 	fmt.Println("Listening on port "+port+"...")
-
 	http.ListenAndServe(":"+port, nil)
 }
