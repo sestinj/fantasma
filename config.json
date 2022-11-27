@@ -1,10 +1,11 @@
 {
     "sub": {
-        "hello": "python3 hello.py"
+        "hello": "python3 hello.py",
+        "goodbye": "cat hello.py"
     },
     "pub": {
         "hello": [
-            "127.0.0.1:8001"
+            "http://127.0.0.1:2023"
         ]
     }
 }
