@@ -1,0 +1,10 @@
+{
+    "sub": {
+        "hello": "python3 hello.py"
+    },
+    "pub": {
+        "hello": [
+            "127.0.0.1:8001"
+        ]
+    }
+}
