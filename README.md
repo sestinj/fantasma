@@ -4,7 +4,7 @@ There are subscriber and publisher nodes.
 To start a node, either publisher, subscriber, or both, run
 
 ```bash
-go fantasma config.json
+go run main <PATH_TO_CONFIG>
 ```
 
 You can also edit the configs while the node is running, just edit the file and it will automatically detect changes.
