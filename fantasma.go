@@ -37,32 +37,19 @@ func readConfig(path string) FantasmaConfig {
 	return jsonData
 }
 
-func subHandler(w http.ResponseWriter, req *http.Request) {
-	fmt.Println("Subscriber Recieved Request")
-
-	topic := req.URL.Query().Get("topic")
-
-	var body map[string]interface{}
-	err := json.NewDecoder(req.Body).Decode(&body)
-	if err != nil {
-		fmt.Println("Failed to decode body: ", err.Error())
-		w.WriteHeader(500)
-		return
-	}
-	bodyBytes, _ := json.Marshal(body)
+func sub(topic string, payload map[string]interface{}) error {
+	payloadBytes, _ := json.Marshal(payload)
 
 	cmd, prs := config.Sub[topic]
 	if !prs {
-		return
+		return nil
 	}
 
 	// Write payload to a file to pass to subprocess
 	filePath := topic+"-"+uuid.New().String()+".json"
-	err = os.WriteFile(filePath, bodyBytes, 0777)
+	err := os.WriteFile(filePath, payloadBytes, 0644)
 	if err != nil {
-		fmt.Println("Failed to write to file: ", err.Error())
-		w.WriteHeader(500)
-		return
+		return fmt.Errorf("failed to write to file: %s", err.Error())
 	}
 
 	// Run subprocess specified in config, passing payload file as first argument
@@ -70,10 +57,8 @@ func subHandler(w http.ResponseWriter, req *http.Request) {
 	cmdSegs = append(cmdSegs, filePath)
 	Cmd := exec.Command(cmdSegs[0], cmdSegs[1:]...)
 	if err != nil {
-		fmt.Println("Failed to start process '" + cmd + "': ", err.Error())
-		w.WriteHeader(500)
 		os.Remove(filePath)
-		return
+		return fmt.Errorf("Failed to start process '" + cmd + "': ", err.Error())
 	}
 
 	// When process finishes, remove payload file and print output
@@ -88,6 +73,62 @@ func subHandler(w http.ResponseWriter, req *http.Request) {
 			fmt.Println("Failed to delete file: ", err.Error())
 		}
 	}()
+
+	return nil
+}
+
+func subHandler(w http.ResponseWriter, req *http.Request) {
+	fmt.Println("Subscriber Recieved Request")
+
+	topic := req.URL.Query().Get("topic")
+
+	var body map[string]interface{}
+	err := json.NewDecoder(req.Body).Decode(&body)
+	if err != nil {
+		fmt.Println("Failed to decode body: ", err.Error())
+		w.WriteHeader(500)
+		return
+	}
+	
+	err = sub(topic, body)
+	if err != nil {
+		w.WriteHeader(500)
+	}
+}
+
+func pub(topic string, payload map[string]interface{}) error {
+	// Get addresses for subscribers to the topic
+	addrs, prs := config.Pub[topic]
+	if !prs {
+		return nil
+	}
+
+	// Marshal request body into byte[] for outgoing body
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal body: %s", err.Error())
+	}
+
+	// Send to all subscribers
+	go func() {
+		for _, addr := range addrs {
+			res, err := http.Post(addr + "/sub?topic="+topic, "application/json", bytes.NewBuffer(jsonPayload))
+			if err != nil {
+				fmt.Println("Failed to send to subscriber: ", err.Error())
+				continue
+			} else {
+				fmt.Println("Sent to subscriber " + addr + " with response: " + res.Status)
+			}
+		}
+	}()
+
+	// If this node subscribes to the topic, run the subprocess
+	err = sub(topic, payload)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func pubHandler(w http.ResponseWriter, req *http.Request) {
@@ -104,31 +145,10 @@ func pubHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	
-	// Get addresses for subscribers to the topic
-	addrs, prs := config.Pub[topic]
-	if !prs {
-		return
-	}
-
-	// Marshal request body into byte[] for outgoing body
-	jsonPayload, err := json.Marshal(body)
+	err = pub(topic, body)
 	if err != nil {
 		w.WriteHeader(500)
-		return
 	}
-
-	// Send to all subscribers
-	go func() {
-		for _, addr := range addrs {
-			res, err := http.Post(addr + "/sub?topic="+topic, "application/json", bytes.NewBuffer(jsonPayload))
-			if err != nil {
-				fmt.Println("Failed to send to subscriber: ", err.Error())
-				continue
-			} else {
-				fmt.Println("Sent to subscriber " + addr + " with response: " + res.Status)
-			}
-		}
-	}()
 }
 
 func main() {
