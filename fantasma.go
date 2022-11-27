@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 )
@@ -112,17 +113,20 @@ func pub(topic string, payload map[string]interface{}) error {
 	}
 
 	// Send to all subscribers
-	go func() {
-		for _, addr := range addrs {
+	var wg sync.WaitGroup
+	wg.Add(len(addrs))
+	for _, addr := range addrs {
+		go func(addr string) {
+			defer wg.Done()
 			res, err := http.Post(addr + "/sub?topic="+topic, "application/json", bytes.NewBuffer(jsonPayload))
 			if err != nil {
 				fmt.Println("Failed to send to subscriber: ", err.Error())
-				continue
 			} else {
 				fmt.Println("Sent to subscriber " + addr + " with response: " + res.Status)
 			}
-		}
-	}()
+		}(addr)
+	}
+	wg.Wait()
 
 	// If this node subscribes to the topic, run the subprocess
 	err = sub(topic, payload)
@@ -172,15 +176,19 @@ func subscribeHandler(w http.ResponseWriter, req *http.Request) {
 
 // Make a request to all known hosts to subscribe to a topic. Only one should be successful
 func subscribeToTopic(topic string) {
+	var wg sync.WaitGroup
 	for _, addr := range config.KnownHosts {
-		res, err := http.Get(addr + "/subscribe?topic="+topic+"&addr="+config.MyAddr)
-		if err != nil {
-			fmt.Println("Failed to subscribe to topic: ", err.Error())
-			continue
-		} else {
-			fmt.Println("Subscribed to topic " + topic + " with response: " + res.Status)
-		}
+		go func(addr string) {
+			defer wg.Done()
+			res, err := http.Get(addr + "/subscribe?topic="+topic+"&addr="+config.MyAddr)
+			if err != nil {
+				fmt.Println("Failed to subscribe to topic: ", err.Error())
+			} else {
+				fmt.Println("Subscribed to topic " + topic + " with response: " + res.Status)
+			}
+		}(addr)
 	}
+	wg.Wait()
 }
 
 func main() {
@@ -192,9 +200,14 @@ func main() {
 	}
 
 	// Subscribe to all topics in config
+	var wg sync.WaitGroup
 	for topic := range config.Pub {
-		subscribeToTopic(topic)
+		go func(topic string) {
+			defer wg.Done()
+			subscribeToTopic(topic)
+		}(topic)
 	}
+	wg.Wait()
 
 
 	http.HandleFunc("/sub", subHandler)
