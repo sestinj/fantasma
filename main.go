@@ -1,25 +1,30 @@
 package main
 
-
 import (
-	"net/http"
-	"fmt"
-	"os"
-	"io/ioutil"
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"os"
 	"os/exec"
+
 	"github.com/google/uuid"
 )
 
-func startServer(port string) {
-	http.ListenAndServe(":" + port, nil)
+type SubConfig map[string]string
+type PubConfig map[string][]string
+type FantasmaConfig struct {
+	Pub PubConfig
+	Sub SubConfig
 }
 
-func handleRequest(conn net.Conn) {
-	buf := make([]byte, 1024)
-}
+var (
+	subConfig SubConfig
+	pubConfig PubConfig
+)
 
-func readConfig(path string) {
+func readConfig(path string) FantasmaConfig {
 	file, err := os.Open(path)
 	if err != nil {
 		fmt.Println("Unable to read file at " + path + ": ", err.Error())
@@ -29,41 +34,44 @@ func readConfig(path string) {
 
 	bytes, _ := ioutil.ReadAll(file)
 
-	var jsonData map[string]interface{}
+	var jsonData FantasmaConfig
 	json.Unmarshal([]byte(bytes), &jsonData)
 
 	return jsonData
 }
 
-const (
-	subConfig interface{}
-	pubConfig interface{}
-)
-
 func subHandler(w http.ResponseWriter, req *http.Request) {
 	topic := req.URL.Query().Get("topic")
 
+	var body []byte
+	err := json.NewDecoder(req.Body).Decode(&body)
+	if err != nil {
+		fmt.Println("Failed to decode body: ", err.Error())
+		fmt.Fprintf(w, "n")
+		return
+	}
+
 	cmd, prs := subConfig[topic]
 	if !prs {
-		fmt.Printf(w, "y")
+		fmt.Fprintf(w, "y")
 		return
 	}
 
 	// Write payload to a file to pass to subprocess
 	filePath := topic+"-"+uuid.New().String()
-	err := os.WriteFile(filePath)
+	err = os.WriteFile(filePath, body, 0644)
 	if err != nil {
-		fmt.Printf(w, "n")
+		fmt.Fprintf(w, "n")
 		return
 	}
 	
 	Cmd := exec.Command(cmd+" "+filePath)
-	err:= Cmd.Start()
+	err = Cmd.Start()
 	if err != nil {
 		// Failure to start process, respond 'n'
 		// We only check failure to start, not to finish
 		fmt.Println("Failed to start process '" + cmd + "': ", err.Error())
-		fmt.Printf(w, "n")
+		fmt.Fprintf(w, "n")
 		return
 	}
 
@@ -76,7 +84,7 @@ func subHandler(w http.ResponseWriter, req *http.Request) {
 	}()
 
 	// If success, respond with 'y'
-	fmt.Printf(w, "y")
+	fmt.Fprintf(w, "y")
 }
 
 func pubHandler(w http.ResponseWriter, req *http.Request) {
@@ -84,38 +92,40 @@ func pubHandler(w http.ResponseWriter, req *http.Request) {
 	err := json.NewDecoder(req.Body).Decode(&body)
 	if err != nil {
 		fmt.Println("Failed to decode body: ", err.Error())
-		fmt.Printf(w, "n")
+		fmt.Fprintf(w, "n")
 		return
 	}
 	
-	ips, prs := pubConfig[req["topic"]]
+	topic := req.URL.Query().Get("topic")
+
+	ips, prs := pubConfig[topic]
 	if !prs {
-		fmt.Printf(w, "y")
+		fmt.Fprintf(w, "y")
 		return
 	}
 
-	jsonPayload, err := json.Marshal()
+	jsonPayload, err := json.Marshal(body)
 	if err != nil {
-		fmt.Printf(w, "n")
+		fmt.Fprintf(w, "n")
 		return
 	}
 
 	// Send to all subscribers
-	for var ip in range ips {
-		http.Post("http://" + ip + ":3000", "application/json", jsonPayload)
+	for _, ip := range ips {
+		http.Post("http://" + ip + ":3000", "application/json", bytes.NewBuffer(jsonPayload))
 	}
 
-	fmt.Printf(w, "y")
+	fmt.Fprintf(w, "y")
 }
 
 func main() {
-	config = readConfig(os.Args[1])
+	config := readConfig(os.Args[1])
 
-	subConfig, sprs := config["sub"]
-	pubConfig, pprs := config["pub"]
+	subConfig = config.Sub
+	pubConfig = config.Pub
 
 	http.HandleFunc("/sub", subHandler)
 	http.HandleFunc("/pub", pubHandler)
 
-	http.ListenAndServe()
+	http.ListenAndServe(":2022", nil)
 }
