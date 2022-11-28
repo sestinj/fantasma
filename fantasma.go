@@ -17,7 +17,6 @@ import (
 type FantasmaConfig struct {
 	Pub map[string][]string
 	Sub map[string]string
-	KnownHosts []string
 	MyAddr string
 }
 
@@ -175,20 +174,13 @@ func subscribeHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 // Make a request to all known hosts to subscribe to a topic. Only one should be successful
-func subscribeToTopic(topic string) {
-	var wg sync.WaitGroup
-	for _, addr := range config.KnownHosts {
-		go func(addr string) {
-			defer wg.Done()
-			res, err := http.Get(addr + "/subscribe?topic="+topic+"&addr="+config.MyAddr)
-			if err != nil {
-				fmt.Println("Failed to subscribe to topic: ", err.Error())
-			} else {
-				fmt.Println("Subscribed to topic " + topic + " with response: " + res.Status)
-			}
-		}(addr)
+func subscribeToTopic(topic string, host string) {
+	res, err := http.Get(host + "/subscribe?topic="+topic+"&addr="+config.MyAddr)
+	if err != nil {
+		fmt.Println("Failed to subscribe to topic: ", err.Error())
+	} else {
+		fmt.Println("Subscribed to topic " + topic + " with response: " + res.Status)
 	}
-	wg.Wait()
 }
 
 func main() {
@@ -201,11 +193,13 @@ func main() {
 
 	// Subscribe to all topics in config
 	var wg sync.WaitGroup
-	for topic := range config.Pub {
-		go func(topic string) {
-			defer wg.Done()
-			subscribeToTopic(topic)
-		}(topic)
+	for topic, publishers := range config.Pub {
+		for _, publisher := range publishers {
+			go func(topic string, publisher string) {
+				defer wg.Done()
+				subscribeToTopic(topic, publisher)
+			}(topic, publisher)
+		}
 	}
 	wg.Wait()
 
