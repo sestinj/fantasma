@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -189,7 +190,12 @@ func subscribeToDefaultTopics() {
 			wg.Add(1)
 			go func(topicName string, addr string) {
 				defer wg.Done()
-				res, err := http.Get(addr + "/subscribe?topic=" + topicName + "&addr=" + config.MyAddr)
+
+				q := url.Values{}
+				q.Add("topic", topicName)
+				q.Add("addr", config.MyAddr)
+
+				res, err := http.Get(addr + "/subscribe?" + q.Encode())
 				if err != nil {
 					fmt.Println("Failed to subscribe to topic: ", err.Error())
 				} else {
