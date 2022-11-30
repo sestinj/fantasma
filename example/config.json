@@ -1,15 +1,18 @@
 {
-    "Sub": {
-        "hello": "python3 hello.py",
-        "goodbye": "cat hello.py"
+    "sub": {
+        "hello": {
+            "cmd": "python3 hello.py",
+            "publishers": ["http://127.0.0.1:2022"]
+        },
+        "goodbye": {
+            "cmd": "cat hello.py",
+            "publishers": ["http://127.0.0.1:2023"]
+        }
     },
-    "Pub": {
+    "pub": {
         "hello": [
             "http://127.0.0.1:2023"
         ]
     },
-    "KnownHosts": [
-        ""
-    ],
-    "MyAddr": ""
+    "myAddr": "http://127.0.0.1:2022"
 }

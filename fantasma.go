@@ -16,8 +16,10 @@ import (
 
 type FantasmaConfig struct {
 	Pub map[string][]string
-	Sub map[string]string
-	KnownHosts []string
+	Sub map[string]struct {
+		Publishers []string
+		Cmd string
+	}
 	MyAddr string
 }
 
@@ -43,7 +45,7 @@ func readConfig(path string) FantasmaConfig {
 func sub(topic string, payload map[string]interface{}) error {
 	payloadBytes, _ := json.Marshal(payload)
 
-	cmd, prs := config.Sub[topic]
+	info, prs := config.Sub[topic]
 	if !prs {
 		return nil
 	}
@@ -56,21 +58,21 @@ func sub(topic string, payload map[string]interface{}) error {
 	}
 
 	// Run subprocess specified in config, passing payload file as first argument
-	cmdSegs := strings.Split(cmd, " ")
+	cmdSegs := strings.Split(info.Cmd, " ")
 	cmdSegs = append(cmdSegs, filePath)
 	Cmd := exec.Command(cmdSegs[0], cmdSegs[1:]...)
 	if err != nil {
 		os.Remove(filePath)
-		return fmt.Errorf("Failed to start process '" + cmd + "': ", err.Error())
+		return fmt.Errorf("Failed to start process '" + info.Cmd + "': ", err.Error())
 	}
 
 	// When process finishes, remove payload file and print output
 	go func() {
 		out, err := Cmd.Output()
 		if err != nil {
-			fmt.Println("Failed to run process '" + cmd + "': ", err.Error())
+			fmt.Println("Failed to run process '" + info.Cmd + "': ", err.Error())
 		}
-		fmt.Println("Process '" + cmd + "' finished with output: ", string(out))
+		fmt.Println("Process '" + info.Cmd + "' finished with output: ", string(out))
 		err = os.Remove(filePath)
 		if err != nil {
 			fmt.Println("Failed to delete file: ", err.Error())
@@ -175,18 +177,26 @@ func subscribeHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 // Make a request to all known hosts to subscribe to a topic. Only one should be successful
-func subscribeToTopic(topic string) {
+func subscribeToDefaultTopics() {
 	var wg sync.WaitGroup
-	for _, addr := range config.KnownHosts {
-		go func(addr string) {
-			defer wg.Done()
-			res, err := http.Get(addr + "/subscribe?topic="+topic+"&addr="+config.MyAddr)
-			if err != nil {
-				fmt.Println("Failed to subscribe to topic: ", err.Error())
-			} else {
-				fmt.Println("Subscribed to topic " + topic + " with response: " + res.Status)
+
+	for topicName, topic := range config.Sub {
+		for _, addr := range topic.Publishers {
+			// Don't subscribe to self
+			if addr == config.MyAddr {
+				continue
 			}
-		}(addr)
+			wg.Add(1)
+			go func(topicName string, addr string) {
+				defer wg.Done()
+				res, err := http.Get(addr + "/subscribe?topic=" + topicName + "&addr=" + config.MyAddr)
+				if err != nil {
+					fmt.Println("Failed to subscribe to topic: ", err.Error())
+				} else {
+					fmt.Println("Subscribed to topic " + topicName + " with response: " + res.Status)
+				}
+			}(topicName, addr)
+		}
 	}
 	wg.Wait()
 }
@@ -200,15 +210,9 @@ func main() {
 	}
 
 	// Subscribe to all topics in config
-	var wg sync.WaitGroup
-	for topic := range config.Pub {
-		go func(topic string) {
-			defer wg.Done()
-			subscribeToTopic(topic)
-		}(topic)
-	}
-	wg.Wait()
-
+	go func() {
+		subscribeToDefaultTopics()
+	}()
 
 	http.HandleFunc("/sub", subHandler)
 	http.HandleFunc("/pub", pubHandler)
