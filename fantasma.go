@@ -198,7 +198,6 @@ func subscribeToDefaultTopics() {
 			}(topicName, addr)
 		}
 	}
-	wg.Wait()
 }
 
 func main() {
